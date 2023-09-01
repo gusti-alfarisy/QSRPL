@@ -1,17 +1,108 @@
 import logging
 import torch
 import os
+
 from RPLoss import RPLoss
-from my_utils import load_model, today_str, make_dir, rotate_images
+from my_utils import load_model, today_str, make_dir, rotate_images, save_dict_csv, get_device, save_model
 from time import time
 import os.path as osp
-from test import test
+from test import test, test_AutoEncoder
 import errno
 import pandas as pd
 
 
-get_device = lambda: torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
 logger = logging.getLogger("train")
+
+
+def train_autoencoder(model, num_epochs, train_dl,
+                            test_dl=None,
+                            lr=0.001,
+                            path='_checkpoints/autoencoder/',
+                            load_path=None,
+                            start_epoch=0,
+                            path_log="autoencoder",
+                            save_each_epoch=False,
+                      device=None
+                            ):
+
+    device = get_device() if device is None else device
+
+    load_model(model, load_path)
+    make_dir(path)
+
+    path_log = os.path.join("_logs", path_log)
+    make_dir(path_log)
+
+    log_dictionary = {
+        'Epoch': [],
+        'Train_MSE': [],
+    }
+
+    if test_dl:
+        log_dictionary['Test_MSE'] = []
+
+    mse_loss = torch.nn.MSELoss()
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    model.to(device)
+    total_step = len(train_dl)
+
+    save = lambda epoch, train_loss, val_loss: save_model(model, path, "AutoEncoder", epoch, train_loss, val_loss,
+                                                          verbose=True)
+
+    for epoch in range(start_epoch, num_epochs):
+        model.train()
+        total_loss = 0
+        loss_step = 0
+        for i, (images, labels) in enumerate(train_dl):
+            images = images.to(device)
+            optimizer.zero_grad()
+
+            latent = model(images)
+            reconstructed = model.decoder(latent)
+
+            loss = mse_loss(images, reconstructed)
+
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+            loss_step += 1
+
+            # if (i + 1) % 100 == 0 or (i + 1) == total_step:
+            #     print(f"Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{total_step}], MSE Loss: {loss.item():.4f}")
+
+        # print(f"Epoch [{epoch + 1}/{num_epochs}]: MSE Loss: {total_loss / loss_step}")
+
+        train_loss = total_loss / loss_step
+        test_loss = test_AutoEncoder(model, test_dl, device=device)
+        model.train()
+        # print(f'Epoch [{epoch + 1}/{num_epochs}], Test MSE Loss: {test_loss}')
+
+        if save_each_epoch:
+            path = save(epoch + 1, train_loss, test_loss)
+
+        print(f"--- PERFORMANCE EPOCH: {epoch + 1} ---")
+        print(f"Train MSE Loss: {train_loss}")
+        print(f"Test MSE Loss: {test_loss}")
+
+        # Store the log to the dictionary
+        log_dictionary['Epoch'].append(epoch + 1)
+        log_dictionary['Train_MSE'].append(train_loss)
+        if test_dl:
+            log_dictionary['Test_MSE'].append(test_loss)
+
+    if not save_each_epoch:
+        path = save(epoch + 1, train_loss, test_loss)
+
+    save_dict_csv(log_dictionary, path_log)
+    log_dictionary['saved_path'] = path
+    return log_dictionary
+
+
+
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value.
@@ -34,15 +125,15 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-def train(model, num_class, train_dl, epoch,
-          dataset_name="dsname",
-          temperature=1.0, lamb=1.0,
-          test_dl=None,
-          openset_dl=None,
-          load_path=None,
-          postfix_file="",
-          path=None,
-          device=None):
+def train_qsrpl(model, num_class, train_dl, epoch,
+                dataset_name="dsname",
+                temperature=1.0, lamb=1.0,
+                test_dl=None,
+                openset_dl=None,
+                load_path=None,
+                postfix_file="",
+                path=None,
+                device=None):
 
     device = get_device() if device is None else device
     model = model.to(device)
@@ -82,7 +173,7 @@ def train(model, num_class, train_dl, epoch,
 
 
 def train_per_epoch(net, criterion, optimizer, trainloader,  **options):
-    net.train()
+    net.train_qsrpl()
     losses = AverageMeter()
 
     torch.cuda.empty_cache()
@@ -219,7 +310,7 @@ def train_RPL(model, num_class, train_dl, num_epochs,
 
     df = pd.DataFrame(res_map)
     # csv_path = f"logs/train/{dataset_name}/QSRPL_{postfix_file}_{today_str()}{'' if ood_dc is None else '_' + ood_dc.name}"
-    csv_path = f"logs/train/{dataset_name}/QSRPL_{postfix_file}_{today_str()}"
+    csv_path = f"_logs/train/{dataset_name}/QSRPL_{postfix_file}_{today_str()}"
     make_dir(csv_path)
     df.to_csv(csv_path + ".csv")
     res_map['model'] = model

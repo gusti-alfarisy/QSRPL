@@ -1,8 +1,33 @@
 import torch
 import numpy as np
-from my_utils import rotate_images
+from torch.distributed.pipeline.sync.stream import get_device
+
+from my_utils import rotate_images, load_model
 import pandas as pd
 from sklearn.metrics import roc_curve, auc
+
+
+def test_AutoEncoder(model, val_dl, load_path=None, device=None):
+
+    device = get_device() if device is None else device
+
+    if load_path:
+        load_model(model, load_path)
+        print("loading model successfully")
+
+    mse_loss = torch.nn.MSELoss()
+    model.eval()
+    loss_total = 0
+    with torch.no_grad():
+        for images, labels in val_dl:
+            images = images.to(device)
+            latent = model(images)
+            reconstructed = model.decoder(latent)
+            loss = mse_loss(images, reconstructed)
+            loss_total += loss.item()
+
+    return loss_total / len(val_dl)
+
 
 def compute_baccu(model, device, criterion, known_dl, unknown_dl, threshold, options=None):
     correct_known = 0
@@ -140,26 +165,6 @@ def test(net, criterion, testloader, outloader=None, device=None, **options):
                 predictions = logits.data.max(1)[1]
                 total += labels.size(0)
                 correct += (predictions == labels.data).sum()
-
-                # _pred_k.append(logits.data.cpu().numpy())
-                # _labels.append(labels.data.cpu().numpy())
-
-        # if outloader:
-        #     for batch_idx, (data, labels) in enumerate(outloader):
-        #         if options['use_gpu']:
-        #             data, labels = data.cuda(), labels.cuda()
-        #
-        #         if options['qchannel']:
-        #             im90, im180, im270 = rotate_images(data)
-        #
-        #         with torch.set_grad_enabled(False):
-        #             if options['qchannel']:
-        #                 x, y = net(data, True, im2=im90, im3=im180, im4=im270)
-        #             else:
-        #                 x, y = net(data, True)
-        #             # x, y = net(data, return_feature=True)
-        #             logits, _ = criterion(x, y)
-        #             _pred_u.append(logits.data.cpu().numpy())
 
     # Accuracy
     acc = float(correct) * 100. / float(total)

@@ -4,6 +4,9 @@ import pandas as pd
 from datetime import date
 import torchvision.transforms.functional as Fvision
 
+
+get_device = lambda: torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
 def load_model(model, load_path):
     if load_path is not None:
         model.load_state_dict(torch.load(load_path))
@@ -13,6 +16,7 @@ def make_dir(path):
     dirpath = os.path.dirname(path)
     if not os.path.exists(dirpath):
         os.makedirs(dirpath)
+
 
 def save_dict_csv(dict_file, path, verbose=True):
     log_df = pd.DataFrame(dict_file)
@@ -56,3 +60,16 @@ def hflip(images):
 
 def vflip(images):
     return Fvision.vflip(images)
+
+def save_model(model, current_path, model_name, epoch, train_loss, val_loss, verbose=True):
+    if verbose:
+        print("Saving the model...")
+
+    today = str(date.today()).replace('-', '_')
+    saved_path = f"{current_path}Model_{model_name}_Epoch_{epoch}_Loss_{train_loss:.3f}_valloss_{val_loss:.3f}_{today}.pth"
+    torch.save(model.state_dict(), saved_path)
+
+    if verbose:
+        print("Successfully saved the model at", saved_path)
+
+    return saved_path

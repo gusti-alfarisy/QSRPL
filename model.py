@@ -5,6 +5,29 @@ import logging
 from backbone import get_backbone
 
 logger = logging.getLogger("model")
+class DSOSR(nn.Module):
+    # TODO adding this feature later
+    def __init__(self, osr_model, autoencoder, threshold1, threshold2, criterion):
+        super(DSOSR, self).__init__()
+        self.osr_model = osr_model
+        self.autoencoder = autoencoder
+        self.threshold1 = threshold1
+        self.threshold2 = threshold2
+        self.criterion = criterion
+
+    # def forward(self, x):
+    #     x = self.osr_model(x)
+    #     prob = torch.nn.functional.softmax(x, dim=1)
+    #     prob, idx_pred = torch.max(prob)
+    #
+    #     if prob >= self.threshold1:
+    #         return prob, idx_pred
+    #     elif prob <= self.threshold2:
+    #         return None
+
+    # def predict(self, x):
+    #     x = self.osr_model(x)
+
 
 class QSRPL(nn.Module):
     def __init__(self, n_class,
@@ -120,3 +143,69 @@ class QSRPL(nn.Module):
 
     def backbone_feature(self, x):
         return self.backbone(x)
+
+
+class AutoEncoderModel(nn.Module):
+    def __init__(self,
+                 n_feature=1024,
+                 pretrained=True,
+                 selfattention=False,
+                 pretrained_model="mobilenet_v3_large"
+                 ):
+
+        super(AutoEncoderModel, self).__init__()
+        self.selfattention = selfattention
+        self.n_feature = n_feature
+        self.backbone, self.backbone_features = get_backbone(pretrained_model, pretrained=pretrained)
+        logger.debug(f"Backbone Features: {self.backbone_features}")
+        logger.debug(f"N Features: {self.n_feature}")
+        self.last_layer1 = nn.Linear(self.backbone_features, self.n_feature)
+        self.last_layer2 = nn.Linear(self.n_feature, self.n_feature)
+
+        # Decoder architecture
+        self.decoder_fcl = nn.Linear(self.n_feature, 729)
+        self.transform_channel = lambda x, bs: x.view((bs, 1, 27, 27))
+        # self.transform_channel = lambda x, bs: x.view((bs, 1, 32, 32))
+        self.decoder_convt = nn.Sequential(
+            nn.ConvTranspose2d(1, 32, 3, 2),
+            nn.ConvTranspose2d(32, 32, 3, 2),
+            nn.ConvTranspose2d(32, 3, 4, 2),
+        )
+
+    def encoder(self, x):
+        x_backbone = self.backbone(x)
+        x_backbone = F.relu(x_backbone)
+        x = F.relu(self.last_layer1(x_backbone))
+        x_enc = self.last_layer2(x)
+        if self.selfattention:
+            x_enc = self.SAModule(x_enc)
+
+        return x_enc
+
+    def forward(self, x):
+        return self.encoder(x)
+
+    def decoder(self, x):
+        x = self.decoder_fcl(x)
+        x = self.transform_channel(x, x.size(0))
+        x = self.decoder_convt(x)
+        return x
+    def get_negative_MSE(self, x_img):
+        x = self.encoder(x_img)
+        recons = self.decoder(x)
+        score = torch.tensor([]).cuda()
+        for i, rec in enumerate(recons):
+            recon_loss = F.mse_loss(x_img[i], rec, reduction='mean') * -1
+            recon_loss = torch.unsqueeze(recon_loss, 0)
+            score = torch.cat((score, recon_loss), 0)
+        return score
+
+    def get_MSE(self, x_img):
+        x = self.encoder(x_img)
+        recons = self.decoder(x)
+        score = torch.tensor([]).cuda()
+        for i, rec in enumerate(recons):
+            recon_loss = F.mse_loss(x_img[i], rec, reduction='mean')
+            recon_loss = torch.unsqueeze(recon_loss, 0)
+            score = torch.cat((score, recon_loss), 0)
+        return score
