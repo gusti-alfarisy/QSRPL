@@ -1,16 +1,13 @@
-# This is a sample Python script.
+import logging
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from dataloader_pool import cifar100_domain_osr_dl
+from model import QSRPL
+from train import train
 
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
-
-
-# Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    domain = "vehicle"
+    domain = "household_items"
+    dc = cifar100_domain_osr_dl(domain=domain, download=True)
+    model = QSRPL(dc.num_class, n_feature=256, pretrained_model="mobilenet_v3_large")
+    result = train(model, dc.num_class, dc.train_dl, 5, temperature=1.0, lamb=1.0, test_dl=dc.test_dl, openset_dl=dc.openset_dl, dataset_name=dc.name)
+    print(result)
