@@ -9,9 +9,7 @@ To use QSRPL model, we just import from the models.py as shown below. You can us
 from model import QSRPL
 
 model = QSRPL(6) # 6 is the number of classes
-
-# In full arguments
-
+# In complete arguments
 model = QSRPL(n_class=6, n_feature=256, pretrained_model="mobilenet_v3_large")
 ```
 
