@@ -1,7 +1,7 @@
 
 
 # Open Domain-Specific Recognition (ODSR) using QSRPL and AutoEncoder
-Implementation of Quad-channel Self-attention Reciprocal Point Learning (QSRPL) and AutoEncoder for DSOSR
+Implementation of Quad-channel Self-attention Reciprocal Point Learning (QSRPL) and AutoEncoder for ODSR.
 
 To use QSRPL model, we just import from the models.py as shown below. You can use this model to train with your own problems.
 
